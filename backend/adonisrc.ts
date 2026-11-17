@@ -28,6 +28,11 @@ export default defineConfig({
     () => import('@adonisjs/core/commands'),
     () => import('@adonisjs/lucid/commands'),
     () => import('@adonisjs/session/commands'),
+    // Los comandos del proyecto. No están en el directorio `commands/` de la
+    // raíz porque Ace lo escanea al arrancar y valida los metadatos de cada
+    // fichero que encuentra, y esa validación falla con la versión instalada
+    // de `jsonschema`. El cargador explica el detalle en su propio fichero.
+    () => import('#commands/index'),
   ],
 
   /*

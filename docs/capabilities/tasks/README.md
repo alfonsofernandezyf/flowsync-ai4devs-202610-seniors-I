@@ -70,8 +70,35 @@ Las formas que se repiten viven en
 transformers: así el documento **no puede** enseñar el vencimiento en la lista.
 
 Ese fichero es documentación, no validación: describe lo que los controladores ya hacen. Si cambia un
-transformer o un validador, se actualiza en el mismo commit. El documento se construye en cada
-petición y no hay fichero que generar; lo que se commitea es el diff de `.adonisjs/`.
+transformer o un validador, se actualiza en el mismo commit.
+
+### El contrato, versionado
+
+El documento también existe **en el repositorio**, en
+[`docs/api/openapi.json`](../../../docs/api/openapi.json). Es el mismo que sirve `/api.json`, con la
+misma información y otro formato: el que se sirve va minificado porque es lo que viaja por HTTP, y el
+versionado va con sangrado porque lo que se revisa es un diff.
+
+Se genera y se comprueba con dos comandos, desde `backend/`:
+
+```bash
+npm run openapi:generate   # escribe docs/api/openapi.json
+npm run openapi:check      # lo regenera en un temporal y lo compara con el versionado
+```
+
+`openapi:check` **solo compara**: no reescribe el fichero versionado y sale con código de error
+distinto de cero si no coinciden, enseñando la diferencia. Es el que debería correr en la integración
+continua; `openapi:generate` es el que se ejecuta a propósito, cuando el cambio ya está hecho, para
+que el fichero versionado viaje en el mismo commit que el código que lo produce.
+
+Lo que comprueba es que el documento **coincida con el código**, no que el código cumpla la spec:
+para eso están los scenarios de la spec y los tests que los cubren. El documento se construye a
+partir de los decoradores de los controladores y de las formas escritas a mano en
+`backend/app/openapi/schemas.ts`, así que un cambio en un transformer o en un validador que no
+llegue a los decoradores no se ve aquí: sigue dependiendo de que quien cambia el código actualice
+el documento en el mismo commit.
+
+Lo que se commitea es, por tanto, el documento versionado y el diff de `.adonisjs/`.
 
 ## Reglas de negocio: dónde vive cada una
 

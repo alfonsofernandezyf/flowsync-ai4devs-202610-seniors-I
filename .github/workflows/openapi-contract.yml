@@ -1,0 +1,74 @@
+# El contrato de la API, versionado.
+#
+# Este trabajo no construye la API ni la prueba: solo comprueba que el
+# documento OpenAPI que vive en `docs/api/openapi.json` sigue siendo el que
+# genera el código. `openapi:check` solo compara, así que el trabajo puede
+# decir que el documento está desfasado sin tocar un solo fichero del
+# repositorio.
+name: Contrato OpenAPI
+
+on:
+  # Cada cambio propuesto, venga de la rama que venga.
+  pull_request:
+  # Y cada push a la rama principal.
+  push:
+    branches:
+      - main
+
+# Lo mínimo que hace falta, y nada más: clonar el repositorio. El trabajo no
+# escribe en el repositorio, no comenta en los pull requests, no publica
+# nada y no pide permisos de secrets. Los permisos que no se declaran aquí
+# quedan en `none`.
+permissions:
+  contents: read
+
+# Un push cancela el análisis del push anterior del mismo ref: si alguien
+# empuja dos veces seguidas, no hace falta comprobar las dos veces. El grupo
+# se construye con el identificador del ref, que no se interpola en ningún
+# comando: solo se usa como etiqueta.
+concurrency:
+  group: openapi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  openapi:
+    # Lo que este trabajo comprueba es que el documento versionado **coincida
+    # con el que genera el código**. No comprueba que el código cumpla la
+    # spec: para eso está la spec, y la comprueban los tests.
+    name: El documento OpenAPI coincide con el que genera el código
+    runs-on: ubuntu-latest
+
+    # Si algo se queda colgado, se corta a los diez minutos.
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          # La versión que pide el README del proyecto.
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar las dependencias del backend
+        run: npm ci
+
+      - name: Preparar el entorno
+        # El comando arranca la aplicación, y arrancarla valida las variables
+        # de entorno: sin un `.env` con APP_KEY se queda antes de comprobar
+        # nada. La clave se genera aquí y no es un secreto —en esta
+        # comprobación no hay ni un dato que cifrar—; lo único que se quiere
+        # es que la aplicación pueda arrancar.
+        run: |
+          cp .env.example .env
+          node ace generate:key
+
+      - name: Comprobar el contrato
+        run: npm run openapi:check

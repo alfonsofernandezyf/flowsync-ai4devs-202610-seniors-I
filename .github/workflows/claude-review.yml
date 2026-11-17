@@ -1,0 +1,105 @@
+# El revisor de código.
+#
+# Lanza el revisor adversarial sobre cada cambio propuesto y publica lo que
+# encuentre **como comentarios en el pull request**, no como un retazo en el
+# registro de ejecución: un hallazgo que solo vive en el log no lo va a leer
+# nadie.
+#
+# El agente solo lee el repositorio. No escribe ficheros, no commitea y no
+# toca las rutas: la única forma de escribir que tiene es publicar el
+# comentario. Eso lo garantizan dos flags distintos, porque no son lo mismo:
+# `--tools` deja disponibles SOLO las herramientas de lectura, y
+# `--disallowedTools` quita explícitamente las de escritura. `--allowedTools`
+# es otra cosa: es la lista de lo que se ejecuta sin preguntar, y es lo que
+# hace que la acción arranque el servidor de comentarios en línea.
+name: Revisión de código
+
+on:
+  pull_request:
+
+# Lo que hace falta y nada más: leer el código (contents) y comentar en el
+# pull request (pull-requests). No hay permisos de escritura en el
+# repositorio, ni de issues, ni de packages, ni de secrets.
+permissions:
+  contents: read
+  pull-requests: write
+
+# Un push cancela la revisión en curso del mismo pull request: si alguien
+# empuja dos veces seguidas, solo interesa la última, y comentar sobre el
+# código viejo solo confunde. El grupo se construye con el número del pull
+# request, que no se interpola en ningún comando: solo se usa como etiqueta.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Revisor adversarial
+    runs-on: ubuntu-latest
+
+    # El reloj del trabajo. Es también el reloj del revisor: 10 minutos de
+    # pared para leer el cambio y comentar lo que encuentre.
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Clonar el repositorio
+        uses: actions/checkout@v4
+        with:
+          # El histórico completo, para que el revisor pueda comparar el
+          # cambio con la rama base sin adivinar.
+          fetch-depth: 0
+
+      - name: Revisar el cambio propuesto
+        uses: anthropics/claude-code-action@v1
+        # Mientras no haya credencial, el trabajo se salta. Sin este `if`, la
+        # acción aborta al validar las credenciales y **todos** los pull
+        # requests se quedan en rojo hasta que se ponga el secreto.
+        if: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        with:
+          # La credencial viene de un secreto del repositorio. Hay dos
+          # caminos y no son intercambiables: mira `docs/ci-revisor.md` antes
+          # de tocar esto.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # El token del workflow, para que la herramienta de comentarios en
+          # línea pueda publicar en el pull request. Sin esto, los hallazgos
+          # se quedan en el registro de ejecución.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+          prompt: |
+            Revisa el cambio propuesto de este pull request.
+
+            Lo primero es leer `.claude/agents/adversarial-reviewer.md`: es el
+            archivo de calibración de esta revisión y sus reglas mandan sobre
+            las tuyas. Después, lee el diff del cambio y los ficheros que toca.
+
+            Tu objetivo es refutar el cambio, no aprobarlo. Publica cada
+            hallazgo encontrado como comentario en línea en el pull request,
+            con la herramienta de comentarios en línea, y da en cada uno la
+            evidencia —archivo y línea— y qué se rompe.
+
+            Publica cada hallazgo en cuanto lo tengas, no al final todos
+            juntos: el trabajo tiene un reloj de diez minutos, y si lo publicas
+            todo al final puede que no llegues a publicar nada.
+
+            Un hallazgo que no se puede anclar a una línea del diff —porque
+            habla de un fichero que el cambio no toca— no se puede comentar en
+            línea. Dilo en tu respuesta final, y no lo pierdes.
+
+            Dos cosas que no debes hacer. No escribas la salida en ficheros
+            ni la redirijas a un fichero: léela directamente y publícala como
+            comentario, porque un informe en un fichero no lo va a leer
+            nadie. Y no hagas commits ni modifiques el repositorio: solo
+            lees y comentas.
+
+          claude_args: |
+            --model sonnet
+            --effort medium
+            --max-turns 40
+            --tools "Read,Grep,Glob"
+            --disallowedTools "Write,Edit,NotebookEdit,Bash"
+            --allowedTools "Read,Grep,Glob,mcp__github_inline_comment__create_inline_comment"
